@@ -1,0 +1,8 @@
+*.txt
+*.pt
+*.json
+wandb/
+__pycache__/
+*.bin
+*.pth
+
