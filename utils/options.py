@@ -40,7 +40,7 @@ def parse_argument() -> argparse.Namespace:
     parser.add_argument("--test_file_dir", default='HC_test_data/Giga/', type=str,
                         help="location of giga test dataset.")
     parser.add_argument("--summary_length", default=8, type=int, help="desired summary length")
-    parser.add_argument("--max_length", default=128, type=int,
+    parser.add_argument("--max_length", default=256, type=int,
                         help="maximum sentence length (article+summary in bytes)")
     parser.add_argument("--model_name", default="gpt2", type=str, help="the Transformer model for training")
     parser.add_argument("--do_train", default=True, type=strtobool, required=False,
@@ -79,7 +79,7 @@ class CustomizedTrainingArguments(TrainingArguments):
     such that our own argument can also be included in the wandb config.
     """
     giga_test_length:int = field(default=8)
-    max_length:int =field(default=128)
+    max_length:int =field(default=256)
     model_dir:str = field(default="/")
     test_file_dir:str = field(default="/")
     train_file_dir:str = field(default="/")
