@@ -13,7 +13,7 @@ from utils.helper import initialize_wandb_environment, load_model_from_directory
 from utils.options import parse_argument, get_training_argument
 from utils.load_data import get_model_and_tokenizer, load_dataset
 from modules.train import train
-from modules.evaluation import evaluated_model
+from modules.evaluation import evaluated_model, evaluated_model_BLUE_only
 
 from transformers import AutoModelForCausalLM
 
@@ -35,14 +35,14 @@ def main() -> None:
     language_model.to(args.device)
     language_model.resize_token_embeddings(len(tokenizer))
 
-    giga_perplexity, giga_rouge_score, giga_generated_summary_length, giga_ave_time_consumption = \
-        evaluated_model(args, trained_model, test_dataset, tokenizer, language_model=language_model)
+    giga_perplexity, BLUE_score, giga_generated_summary_length, giga_ave_time_consumption = \
+        evaluated_model_BLUE_only(args, trained_model, test_dataset, tokenizer)
 
-    print("Performance on Gigaword dataset \n")
-    print("Rouge-1 F: ", round(100 * giga_rouge_score[0], 2))
-    print("Rouge-2 F: ", round(100 * giga_rouge_score[1], 2))
-    print("Rouge-l F: ", round(100 * giga_rouge_score[2], 2))
-    print("Perplexity: ", round(giga_perplexity, 2))
+    print("Performance on Yuqiao dataset \n")
+    print("BLUE-1: ", round(100 * BLUE_score[0], 2))
+    print("BLUE-2: ", round(100 * BLUE_score[1], 2))
+    print("BLUE-3: ", round(100 * BLUE_score[2], 2))
+    print("BLUE-4: ", round(100 * BLUE_score[3], 2))
     print("Average (per sample) generated summary length", giga_generated_summary_length)
     print("Average (per sample) inference time consumption on the test dataset", giga_ave_time_consumption)
 

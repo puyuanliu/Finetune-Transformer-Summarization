@@ -19,30 +19,34 @@ from torch.utils.data import DataLoader
 
 from utils.helper import save_summary
 from modules.inference import sample_seq_text
-
+from nltk.translate.bleu_score import corpus_bleu as BLUE
 
 def get_gpt2_evaluation_function(args: argparse, tokenizer: any, loss_fct:FunctionType):
     def gpt2_eval_metric(prediction: Tensor):
         """
         This function evaluates the predicted result returned by the trainer
         """
+        max_prob_predictions = prediction[0]
+        labels = prediction[1]
+        generated_summaries = []  # Initialize the summary and reference list to be empty
+        ref_summaries = []
+        for i in range(0, len(max_prob_predictions)):
+            sep_index = (labels[i] == tokenizer.sep_token_id).nonzero()[0][0]  # Get the index of the separate token
+            # clipping the logits to only include the generated summary part
+            current_generated_summary = tokenizer.convert_ids_to_tokens(max_prob_predictions[i],
+                                                                        skip_special_tokens=True)
+            current_generated_summary = tokenizer.convert_tokens_to_string(current_generated_summary)
+            current_generated_summary = " ".join(current_generated_summary.split()[
+                                                 0:args.summary_length])  # We clipped the generated summary by desired length
+            ref_summary_end_position = (labels[i] == tokenizer.eos_token_id).nonzero()[0][0]
+            current_ref_summary = tokenizer.decode(
+                labels[i][sep_index + 1:ref_summary_end_position])  # decode the reference tokens to ref summary
+            generated_summaries.append(
+                ''.join([i if ord(i) < 128 else ' ' for i in current_generated_summary]))  # remove non-gdb(ascii) token
+            # generated_summaries.append(current_generated_summary)
+            ref_summaries.append(current_ref_summary)
         if args.validation_criteria == "rouge":
             # If we want to use the rouge score as the validation criteria
-            max_prob_predictions = prediction[0]
-            labels = prediction[1]
-            generated_summaries = []  # Initialize the summary and reference list to be empty
-            ref_summaries = []
-            for i in range(0, len(max_prob_predictions)):
-                sep_index = (labels[i] == tokenizer.sep_token_id).nonzero()[0][0]  # Get the index of the separate token
-                # clipping the logits to only include the generated summary part
-                current_generated_summary = tokenizer.convert_ids_to_tokens(max_prob_predictions[i], skip_special_tokens=True)
-                current_generated_summary = tokenizer.convert_tokens_to_string(current_generated_summary)
-                current_generated_summary = " ".join(current_generated_summary.split()[0:args.summary_length])  # We clipped the generated summary by desired length
-                ref_summary_end_position = (labels[i] == tokenizer.eos_token_id).nonzero()[0][0]
-                current_ref_summary = tokenizer.decode(labels[i][sep_index+1:ref_summary_end_position])  # decode the reference tokens to ref summary
-                generated_summaries.append(''.join([i if ord(i) < 128 else ' ' for i in current_generated_summary])) # remove non-gdb(ascii) token
-                #generated_summaries.append(current_generated_summary)
-                ref_summaries.append(current_ref_summary)
             rouge = Pythonrouge(summary_file_exist=False,
                                 summary=[[i] for i in generated_summaries], reference=[[[i]] for i in ref_summaries],
                                 n_gram=2, ROUGE_SU4=False, ROUGE_L=True,
@@ -60,12 +64,19 @@ def get_gpt2_evaluation_function(args: argparse, tokenizer: any, loss_fct:Functi
             rouge_geometric = np.exp(rouge_geometric.mean())
             # Return the a metric directory, though rouge score is also included, we tend to use cross-entropy loss to
             # perform validation (model selection)
-            gpt2_eval_metric = {"ROUGE-1-F": scores["ROUGE-1-F"], "ROUGE-2-F": scores["ROUGE-2-F"],
+            eval_result = {"ROUGE-1-F": scores["ROUGE-1-F"], "ROUGE-2-F": scores["ROUGE-2-F"],
                                 "ROUGE-L-F": scores["ROUGE-L-F"], "ROUGE-GEO": rouge_geometric}
-            return gpt2_eval_metric
+
+        elif args.validation_criteria == "BLUE-4":
+            hypothesis = [i.split() for i in generated_summaries]
+            references = [[i.split()] for i in ref_summaries]
+            BLUE_4 = BLUE(references, hypothesis, weights=(0, 0, 0, 1))
+            eval_result = {"BLUE-4": BLUE_4}
+
         else:
             # If we want to use cross-entropy loss as the validation criteria
-            return {}
+            eval_result = {}
+        return eval_result
 
     def gpt2_prediction_step(self, model, inputs, prediction_loss_only=False, ignore_keys=None):
 
@@ -136,6 +147,41 @@ def evaluated_model(args, model, test_dataset, tokenizer, use_finetune=True, unf
     return ave_perplexity, ave_rouge_score, ave_summary_length, ave_time_consumption
 
 
+def evaluated_model_BLUE_only(args, model, test_dataset, tokenizer, n_iter=10,
+                              summary_save_directory="generated_summaries"):
+    model.eval()  # Set the model to evaluation mode
+    BLUE_1_list = []  # Initialize lists to store rouge score for each iteration such that we can calculate their average later
+    BLUE_2_list = []
+    BLUE_3_list = []
+    BLUE_4_list = []
+    length_list = []  # Initialize list to store the average summary length of the generated summary of each iteration
+    time_consumption_list = []
+    ignore_index = tokenizer.pad_token_id
+    loss_fct = CrossEntropyLoss(ignore_index=ignore_index)  # Ignore padding index when calculating cross-entropy loss
+    for i in tqdm(range(0, n_iter)):
+        # evaluate the rouge score of the given model on the given dataset
+        # we also include the time consumption of model inference and the output
+        scores, generated_summary, time_consumption = evaluate_BLUE_score(args, model, test_dataset, tokenizer, num=i)
+        time_consumption_list.append(time_consumption)
+        BLUE_1_list.append(scores[0])
+        BLUE_2_list.append(scores[1])
+        BLUE_3_list.append(scores[2])
+        BLUE_4_list.append(scores[3])
+        save_summary(args, generated_summary, summary_save_directory, i)  # save the generated summary to directory
+        # Calculate the average length of the generated summary
+        # Notice we remove the dot token as what was done in previous works (e.g., HC_summary)
+        current_ave_length_list = [len(sentence[0].split()) for sentence in generated_summary]
+        current_ave_length = sum(current_ave_length_list)/len(current_ave_length_list)
+        length_list.append(current_ave_length)
+
+    # Average the metrics over iterations.
+    ave_BLUE_score = [sum(BLUE_1_list) / len(BLUE_1_list), sum(BLUE_2_list) / len(BLUE_2_list),
+                      sum(BLUE_3_list) / len(BLUE_3_list), sum(BLUE_4_list) / len(BLUE_4_list)]
+    ave_summary_length = sum(length_list)/len(length_list)
+    ave_time_consumption = sum(time_consumption_list)/len(time_consumption_list)
+    return None, ave_BLUE_score, ave_summary_length, ave_time_consumption
+
+
 def evaluate_perplexity(args: argparse.Namespace, perp_model: any, tokenizer: any, ignore_index: List[int], generated_summary: List[str], loss_fct):
     """
     Evaluate the perplexity of the generated summaries given the perplexity model
@@ -188,6 +234,7 @@ def evaluate_rouge_score(args: argparse.Namespace, model: any, test_dataset:any,
         total_time_consumption.append(sample_time_consumption)
         generated_summary.append([''.join([i if ord(i) < 128 else ' ' for i in current_generated_summary])])  # We remove the stopping period from the generated summaries
         reference_summary.append([[current_ref_summary]])
+
     rouge = Pythonrouge(summary_file_exist=False,
                         summary=generated_summary, reference=reference_summary,
                         n_gram=2, ROUGE_SU4=False, ROUGE_L=True,
@@ -198,6 +245,36 @@ def evaluate_rouge_score(args: argparse.Namespace, model: any, test_dataset:any,
 
     print("Start calculating rouge score...")
     scores = rouge.calc_score()
+    return scores, generated_summary, sum(total_time_consumption)/len(total_time_consumption)
+
+
+def evaluate_BLUE_score(args: argparse.Namespace, model: any, test_dataset:any, tokenizer: any, temperature=0.8,
+                         top_k=10, top_p=0.5, num=0) -> Tuple:
+    """
+    Evaluate the rouge score given the model and test dataset.
+    """
+    generated_summary = []  # initialize the generated summary and reference summary list
+    reference_summary = []
+    total_time_consumption = []
+    for i in tqdm(range(0, len(test_dataset))):
+        current_sample = test_dataset[i]  # get the i-th concentrated tokens from the dataset, note this is a dict
+        current_ref_summary = test_dataset.ref_summaries[i]  # get the i-th reference summary from the dataset, note this is str
+        current_sample = current_sample["input_ids"]  # get the concentrated token list from the dict
+        idx = (current_sample == tokenizer.sep_token_id).nonzero(as_tuple=False).item()  # get the index of the sep token
+        current_context = current_sample[:idx + 1].tolist()  # get tokens before the sep token (which is the article part)
+        # get the summary with the desired length
+        current_generated_summary, sample_time_consumption = sample_seq_text(model, current_context, args.summary_length,
+                                                    args.device, temperature, top_k, top_p,
+                                                    tokenizer=tokenizer)
+        total_time_consumption.append(sample_time_consumption)
+        generated_summary.append(''.join([i if ord(i) < 128 else ' ' for i in current_generated_summary]))  # We remove the stopping period from the generated summaries
+        reference_summary.append(current_ref_summary)
+
+    hypothesis = [i.split() for i in generated_summary]
+    references = [[i.split()] for i in reference_summary]
+    scores = []
+    for i in range(1, 5):
+        scores.append(BLUE(references, hypothesis, weights=(1,)*i))
     return scores, generated_summary, sum(total_time_consumption)/len(total_time_consumption)
 
 
