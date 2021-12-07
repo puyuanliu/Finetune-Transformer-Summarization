@@ -54,11 +54,11 @@ def load_gpt2_dataset(args: argparse.Namespace, tokenizer: any) -> Tuple[GPT2Dat
     print("Start building dataset...\n")
     training_dataset = GPT2Dataset(article=args.train_file_dir + "article.txt",
                                    summaries=args.train_file_dir + "HC_summaries.txt", tokenizer=tokenizer,
-                                   summary_length=args.summary_length, max_length=args.max_length, data_size=10*1000)
+                                   summary_length=args.summary_length, max_length=args.max_length)
 
     validation_dataset = GPT2Dataset(article=args.val_file_dir + "article.txt",
                                      summaries=args.val_file_dir + "HC_summaries.txt", tokenizer=tokenizer,
-                                     summary_length=args.summary_length, max_length=args.max_length, data_size=1000)
+                                     summary_length=args.summary_length, max_length=args.max_length)
 
     test_dataset = GPT2Dataset(article=args.test_file_dir + "article.txt",
                                summaries=args.test_file_dir + "ref_summaries.txt", tokenizer=tokenizer,
