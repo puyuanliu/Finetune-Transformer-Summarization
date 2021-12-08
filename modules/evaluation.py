@@ -21,6 +21,7 @@ from utils.helper import save_summary
 from modules.inference import sample_seq_text
 from nltk.translate.bleu_score import corpus_bleu as BLUE
 
+
 def get_gpt2_evaluation_function(args: argparse, tokenizer: any, loss_fct:FunctionType):
     def gpt2_eval_metric(prediction: Tensor):
         """
@@ -33,11 +34,16 @@ def get_gpt2_evaluation_function(args: argparse, tokenizer: any, loss_fct:Functi
         for i in range(0, len(max_prob_predictions)):
             sep_index = (labels[i] == tokenizer.sep_token_id).nonzero()[0][0]  # Get the index of the separate token
             # clipping the logits to only include the generated summary part
-            current_generated_summary = tokenizer.convert_ids_to_tokens(max_prob_predictions[i],
-                                                                        skip_special_tokens=True)
-            current_generated_summary = tokenizer.convert_tokens_to_string(current_generated_summary)
-            current_generated_summary = " ".join(current_generated_summary.split()[
-                                                 0:args.summary_length])  # We clipped the generated summary by desired length
+            # If the model determined eos token
+            if len((max_prob_predictions[i][sep_index:] == tokenizer.eos_token_id).nonzero()[0]) != 0:
+                generated_summary_end_position = sep_index + (max_prob_predictions[i][sep_index:]
+                                                              == tokenizer.eos_token_id).nonzero()[0][0]
+            elif len((max_prob_predictions[i][sep_index:] == tokenizer.sep_token_id).nonzero()[0]) != 0:
+                generated_summary_end_position = sep_index + (max_prob_predictions[i][sep_index:]
+                                                              == tokenizer.sep_token_id).nonzero()[0][0]
+            else:
+                generated_summary_end_position = sep_index + 10
+            current_generated_summary = tokenizer.decode(max_prob_predictions[i][sep_index:generated_summary_end_position]) # We clipped the generated summary by desired length
             ref_summary_end_position = (labels[i] == tokenizer.eos_token_id).nonzero()[0][0]
             current_ref_summary = tokenizer.decode(
                 labels[i][sep_index + 1:ref_summary_end_position])  # decode the reference tokens to ref summary
