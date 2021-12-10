@@ -38,18 +38,15 @@ def get_gpt2_evaluation_function(args: argparse, tokenizer: any, loss_fct:Functi
             if len((max_prob_predictions[i][sep_index:] == tokenizer.eos_token_id).nonzero()[0]) != 0:
                 generated_summary_end_position = sep_index + (max_prob_predictions[i][sep_index:]
                                                               == tokenizer.eos_token_id).nonzero()[0][0]
-            elif len((max_prob_predictions[i][sep_index:] == tokenizer.sep_token_id).nonzero()[0]) != 0:
-                generated_summary_end_position = sep_index + (max_prob_predictions[i][sep_index:]
-                                                              == tokenizer.sep_token_id).nonzero()[0][0]
             else:
-                generated_summary_end_position = sep_index + 10
+                generated_summary_end_position = sep_index + 20
             current_generated_summary = tokenizer.decode(max_prob_predictions[i][sep_index:generated_summary_end_position]) # We clipped the generated summary by desired length
             ref_summary_end_position = (labels[i] == tokenizer.eos_token_id).nonzero()[0][0]
             current_ref_summary = tokenizer.decode(
                 labels[i][sep_index + 1:ref_summary_end_position])  # decode the reference tokens to ref summary
-            generated_summaries.append(
-                ''.join([i if ord(i) < 128 else ' ' for i in current_generated_summary]))  # remove non-gdb(ascii) token
-            # generated_summaries.append(current_generated_summary)
+            # generated_summaries.append(
+            #     ''.join([i if ord(i) < 128 else ' ' for i in current_generated_summary]))  # remove non-gdb(ascii) token
+            generated_summaries.append(current_generated_summary)
             ref_summaries.append(current_ref_summary)
         if args.validation_criteria == "rouge":
             # If we want to use the rouge score as the validation criteria
@@ -76,9 +73,8 @@ def get_gpt2_evaluation_function(args: argparse, tokenizer: any, loss_fct:Functi
         elif args.validation_criteria == "BLUE-4":
             hypothesis = [i.split() for i in generated_summaries]
             references = [[i.split()] for i in ref_summaries]
-            BLUE_4 = BLUE(references, hypothesis, weights=(0, 0, 0, 1))
+            BLUE_4 = BLUE(references, hypothesis, weights=(0.25, 0.25, 0.25, 0.25))
             eval_result = {"BLUE-4": BLUE_4}
-
         else:
             # If we want to use cross-entropy loss as the validation criteria
             eval_result = {}
@@ -266,7 +262,7 @@ def evaluate_BLUE_score(args: argparse.Namespace, model: any, test_dataset:any, 
         current_sample = test_dataset[i]  # get the i-th concentrated tokens from the dataset, note this is a dict
         current_ref_summary = test_dataset.ref_summaries[i]  # get the i-th reference summary from the dataset, note this is str
         current_sample = current_sample["input_ids"]  # get the concentrated token list from the dict
-        idx = (current_sample == tokenizer.sep_token_id).nonzero(as_tuple=False).item()  # get the index of the sep token
+        idx = (current_sample == tokenizer.sep_token_id).nonzero(as_tuple=False)[0].item()  # get the index of the sep token
         current_context = current_sample[:idx + 1].tolist()  # get tokens before the sep token (which is the article part)
         # get the summary with the desired length
         current_generated_summary, sample_time_consumption = sample_seq_text(model, current_context, args.summary_length,
@@ -279,8 +275,10 @@ def evaluate_BLUE_score(args: argparse.Namespace, model: any, test_dataset:any, 
     hypothesis = [i.split() for i in generated_summary]
     references = [[i.split()] for i in reference_summary]
     scores = []
-    for i in range(1, 5):
-        scores.append(BLUE(references, hypothesis, weights=(1,)*i))
+    scores.append(BLUE(references, hypothesis, weights=(1,)))
+    scores.append(BLUE(references, hypothesis, weights=(0.5,0.5)))
+    scores.append(BLUE(references, hypothesis, weights=(0.33,0.33,0.33)))
+    scores.append(BLUE(references, hypothesis, weights=(0.25, 0.25, 0.25)))
     return scores, generated_summary, sum(total_time_consumption)/len(total_time_consumption)
 
 

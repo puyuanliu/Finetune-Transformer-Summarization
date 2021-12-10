@@ -28,11 +28,11 @@ def get_gpt2_loss_function(args: argparse.Namespace, tokenizer: any,loss_fct: Fu
         labels = inputs["input_ids"]
         for i in range(0, args.batch_size):
             # Get the idx of the <|sep|> token
-            idx = (article[i] == tokenizer.sep_token_id).nonzero(as_tuple=False).item()
+            idx = (article[i] == tokenizer.sep_token_id).nonzero(as_tuple=False)[0].item()
             # only consider loss on reference summary just like seq2seq models
             eos_token_pos = ((labels[i] == tokenizer.eos_token_id).nonzero(as_tuple=True)[0][0])
-            shift_logits = logits[i][..., idx:eos_token_pos - 2, :].contiguous()  # We only calculate loss for non-padding and non-terminating tokens.
-            shift_labels = labels[i][..., idx + 1:eos_token_pos-1].contiguous()
+            shift_logits = logits[i][..., idx:eos_token_pos, :].contiguous()
+            shift_labels = labels[i][..., idx + 1:eos_token_pos+1].contiguous()
             # Change the end of sentence token to padding token such that it will be ignored during loss calculation
             #shift_labels[shift_labels == tokenizer.eos_token_id] = tokenizer.pad_token_id
             loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))  # Calculate the loss

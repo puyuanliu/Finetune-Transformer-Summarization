@@ -41,10 +41,10 @@ def train_gpt2(model: any, tokenizer: any, args: argparse.Namespace, training_ar
     """
     print("Start training...\n")
     # resize the embedding layer of the model, otherwise cuda error occurs :(, sadly this is not auto-done by trainer
-    ignore_index = tokenizer.pad_token_id
+    #ignore_index = tokenizer.pad_token_id
     # we use a customized GPT2 loss function since the model was not designed for summarization task at the beginning
     # and requires revising on the loss function
-    loss_fct = CrossEntropyLoss(ignore_index=ignore_index)
+    loss_fct = CrossEntropyLoss()
     # Create the loss function for GPT2 training
     gpt2_loss_function = get_gpt2_loss_function(args, tokenizer, loss_fct)
     evaluation_functions = get_gpt2_evaluation_function(args, tokenizer, loss_fct)  # Create the evaluation function for GPT2 training

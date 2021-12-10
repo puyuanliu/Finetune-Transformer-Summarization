@@ -26,18 +26,27 @@ def sample_seq_text(model, context, length, device, temperature=1, top_k=0, top_
     context = torch.tensor(context, dtype=torch.long, device=device)
     context = context.unsqueeze(0)
     generated = context
+    total_time = 0
+    result = []
     with torch.no_grad():
         while True:
             inputs = {'input_ids': generated}
+            start_time = time.time()
             outputs = model(
                 **inputs)  # Note: we could also use 'past' with GPT-2/Transfo-XL/XLNet (cached hidden-states)
+            consumed_time = time.time() - start_time
+            total_time += consumed_time
             next_token_logits = outputs[0][0, -1, :] / temperature
             filtered_logits = top_k_top_p_filtering(next_token_logits, top_k=top_k, top_p=top_p)
             next_token = torch.multinomial(F.softmax(filtered_logits, dim=-1), num_samples=1)
-            generated = torch.cat((generated, next_token.unsqueeze(0)), dim=1)
+            generated = torch.cat([generated, next_token.unsqueeze(0)], dim=1)
             if next_token.unsqueeze(0) == eos_id:
                 # EOS token has been generated
                 break
+            if len(result)>300:
+                result = result[0:10]
+                break
+            result.append(next_token.item())
     if tokenizer is not None:
-        generated = tokenizer.decode(generated)
-    return generated
+        result = tokenizer.decode(result)
+    return result, total_time
